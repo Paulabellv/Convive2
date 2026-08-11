@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Acerca de Convive — Tu Biblioteca de Archivos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --ink: #1b263b;
+      --paper-warm: #f4e8c1;
+      --paper-muted: #ead9b4;
+      --wood-dark: #4a2e1b;
+      --wood-medium: #6e472a;
+      --gold-foil: #dfb259;
+      --wall-bg: #1e3a5f;
+      --wall-bg-gradient: radial-gradient(circle at 50% 30%, #284a77 0%, #172d4a 70%, #0f1e33 100%);
+    }
+
+    body.theme-navy {
+      --wall-bg: #1e3a5f;
+      --wall-bg-gradient: radial-gradient(circle at 50% 30%, #294b75 0%, #182e4a 70%, #0f1f33 100%);
+    }
+    body.theme-amber {
+      --wall-bg: #6e472a;
+      --wall-bg-gradient: radial-gradient(circle at 50% 30%, #855734 0%, #57371f 70%, #3a2211 100%);
+    }
+    body.theme-forest {
+      --wall-bg: #2a4a3c;
+      --wall-bg-gradient: radial-gradient(circle at 50% 30%, #38614f 0%, #203a2e 70%, #12241c 100%);
+    }
+    body.theme-parchment {
+      --wall-bg: #cbb493;
+      --wall-bg-gradient: radial-gradient(circle at 50% 30%, #ded1ba 0%, #b8a07c 70%, #8f7756 100%);
+      --ink: #2b1f17;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Manrope', -apple-system, sans-serif;
+      color: var(--paper-warm);
+      background: var(--wall-bg);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    .page {
+      position: relative;
+      max-width: 1200px;
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 20px 4vw 40px;
+      background: var(--wall-bg-gradient);
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      transition: background 0.4s ease;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 10px 20px;
+      background: rgba(20, 30, 48, 0.75);
+      border: 1px solid rgba(244, 232, 193, 0.25);
+      border-radius: 12px;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    }
+
+    .brand {
+      font-family: 'Fraunces', serif;
+      font-size: 1.4rem;
+      font-weight: 700;
+      color: var(--paper-warm);
+      text-decoration: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .brand span { color: var(--gold-foil); font-size: 1.1rem; }
+
+    .theme-swatches {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 10px;
+      background: rgba(0, 0, 0, 0.25);
+      border-radius: 20px;
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+    .swatch {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid rgba(255, 255, 255, 0.6);
+      cursor: pointer;
+      padding: 0;
+      transition: transform 0.2s ease;
+    }
+    .swatch:hover, .swatch.active {
+      transform: scale(1.18);
+      border-color: var(--gold-foil);
+      box-shadow: 0 0 8px var(--gold-foil);
+    }
+
+    .back-btn {
+      border: 2px solid var(--gold-foil);
+      border-radius: 999px;
+      background: linear-gradient(135deg, #b84a39 0%, #8c281e 100%);
+      color: #fff;
+      padding: 8px 18px;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 0.8rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s;
+    }
+    .back-btn:hover {
+      transform: translateY(-2px);
+      background: linear-gradient(135deg, #d45743 0%, #a13023 100%);
+    }
+
+    main {
+      max-width: 900px;
+      margin: 40px auto 0;
+      width: 100%;
+    }
+
+    .hero-card {
+      background: var(--paper-warm);
+      color: var(--ink);
+      border: 4px solid var(--wood-medium);
+      border-radius: 16px;
+      padding: 40px 48px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+      position: relative;
+    }
+
+    .eyebrow {
+      display: inline-block;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: #8c5a36;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      background: rgba(140, 90, 54, 0.12);
+      padding: 4px 10px;
+      border-radius: 6px;
+    }
+
+    h1 {
+      font-family: 'Fraunces', serif;
+      font-size: clamp(2.2rem, 4.5vw, 3.6rem);
+      line-height: 1.15;
+      margin: 0 0 18px;
+      color: var(--wood-dark);
+    }
+    h1 em {
+      color: #b84a39;
+      font-style: italic;
+    }
+
+    .lead {
+      font-size: clamp(0.98rem, 1.3vw, 1.15rem);
+      line-height: 1.75;
+      color: #3b2213;
+      margin: 0;
+    }
+
+    .details-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      margin-top: 32px;
+    }
+
+    .detail-card {
+      background: linear-gradient(160deg, #5c3a21 0%, #362011 100%);
+      border: 3px solid var(--wood-border);
+      border-radius: 12px;
+      padding: 22px;
+      color: var(--paper-warm);
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+      transition: transform 0.2s ease;
+    }
+    .detail-card:hover {
+      transform: translateY(-4px);
+    }
+
+    .detail-card label {
+      display: block;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--gold-foil);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    .detail-card p {
+      margin: 0;
+      font-family: 'Fraunces', serif;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+
+    [contenteditable="true"] {
+      outline: 2px dashed var(--gold-foil);
+      outline-offset: 4px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.2);
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .action-btn {
+      border: 2px solid var(--gold-foil);
+      border-radius: 999px;
+      padding: 10px 22px;
+      background: linear-gradient(135deg, #4f825e 0%, #32563d 100%);
+      color: #fff;
+      font-family: 'Manrope', sans-serif;
+      font-weight: 700;
+      font-size: 0.8rem;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      transition: transform 0.2s, background 0.2s;
+    }
+    .action-btn:hover {
+      transform: translateY(-2px);
+      background: linear-gradient(135deg, #5f9b71 0%, #3e6a4b 100%);
+    }
+
+    .action-btn.secondary {
+      background: rgba(244, 232, 193, 0.2);
+      border-color: var(--gold-foil);
+      color: var(--paper-warm);
+    }
+    .action-btn.secondary:hover {
+      background: rgba(244, 232, 193, 0.35);
+    }
+
+    .hidden { display: none !important; }
+
+    footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 50px;
+      padding-top: 20px;
+      border-top: 1px dashed rgba(244, 232, 193, 0.25);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      opacity: 0.85;
+    }
+
+    @media (max-width: 768px) {
+      .hero-card { padding: 28px 22px; }
+      .details-grid { grid-template-columns: 1fr; }
+      header { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body class="theme-navy">
+  <div class="page">
+    <header>
+      <a class="brand" href="index.html">Convive <span>✦</span></a>
+
+      <div class="theme-swatches" aria-label="Cambiar ambiente">
+        <button class="swatch active" data-theme="theme-navy" title="Azul Noche" style="background: #1e3a5f;"></button>
+        <button class="swatch" data-theme="theme-amber" title="Ámbar Cálido" style="background: #6e472a;"></button>
+        <button class="swatch" data-theme="theme-forest" title="Bosque Tranquilo" style="background: #2a4a3c;"></button>
+        <button class="swatch" data-theme="theme-parchment" title="Pergamino Suave" style="background: #cbb493;"></button>
+      </div>
+
+      <a class="back-btn" href="index.html">← Volver a los estantes</a>
+    </header>
+
+    <main>
+      <div class="hero-card">
+        <span class="eyebrow">Acerca de nuestro archivo</span>
+        <h1 data-about-field="title">Preservando lo que hace a nuestra historia <em>compartida.</em></h1>
+        <p class="lead" data-about-field="lead">Convive es un refugio acogedor para las memorias que valen la pena conservar: cartas, imágenes, notas e ideas que forman parte de una biblioteca viva. Diseñado para coleccionar con cuidado y encontrar significado en lo que permanece.</p>
+      </div>
+
+      <section class="details-grid" aria-label="Información de Convive">
+        <div class="detail-card">
+          <label>¿Qué es?</label>
+          <p data-about-field="detail-1">Un archivo vivo estilo acuarela donde cada nota o documento se convierte en un libro único.</p>
+        </div>
+        <div class="detail-card">
+          <label>Creado para</label>
+          <p data-about-field="detail-2">Tesoros personales, hallazgos, recuerdos y proyectos en constante evolución.</p>
+        </div>
+        <div class="detail-card">
+          <label>Filosofía</label>
+          <p data-about-field="detail-3">Un espacio cálido, silencioso y organizado al que siempre apetece regresar.</p>
+        </div>
+      </section>
+
+      <div class="actions">
+        <button class="action-btn secondary" id="edit-about">Editar texto</button>
+        <button class="action-btn hidden" id="save-about">Guardar cambios 💾</button>
+      </div>
+    </main>
+
+    <footer>
+      <span>Convive — Biblioteca de Archivos</span>
+      <span>© 2026 Convive</span>
+    </footer>
+  </div>
+
+  <script>
+    // Paletas de color / Swatches
+    document.querySelectorAll('.swatch').forEach(swatch => {
+      swatch.addEventListener('click', () => {
+        document.querySelectorAll('.swatch').forEach(s => s.classList.remove('active'));
+        swatch.classList.add('active');
+        document.body.className = swatch.dataset.theme;
+      });
+    });
+
+    // Persistencia editable
+    const fields = [...document.querySelectorAll('[data-about-field]')];
+    const editButton = document.querySelector('#edit-about');
+    const saveButton = document.querySelector('#save-about');
+    const saved = JSON.parse(localStorage.getItem('convive-about-us') || '{}');
+
+    fields.forEach(field => {
+      if (saved[field.dataset.aboutField]) {
+        field.innerHTML = saved[field.dataset.aboutField];
+      }
+    });
+
+    function setEditing(isEditing) {
+      fields.forEach(field => field.contentEditable = String(isEditing));
+      editButton.classList.toggle('hidden', isEditing);
+      saveButton.classList.toggle('hidden', !isEditing);
+    }
+
+    editButton?.addEventListener('click', () => {
+      setEditing(true);
+      fields[0].focus();
+    });
+
+    saveButton?.addEventListener('click', () => {
+      const values = {};
+      fields.forEach(field => values[field.dataset.aboutField] = field.innerHTML);
+      localStorage.setItem('convive-about-us', JSON.stringify(values));
+      setEditing(false);
+    });
+  </script>
+</body>
+</html>

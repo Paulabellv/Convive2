@@ -1,0 +1,297 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Convive — Tu Biblioteca de Archivos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="supabase-config.js"></script>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="theme-navy">
+  <main class="page" id="main-room">
+    <!-- Header principal con paletas de color, búsqueda, perfil y acciones -->
+    <header>
+      <div class="brand">Convive <span>✦</span></div>
+      
+      <!-- Paleta de colores / Theme swatches como en el wireframe -->
+      <div class="theme-swatches" aria-label="Cambiar ambiente de la habitación">
+        <button class="swatch active" data-theme="theme-navy" title="Azul Noche (Original)" style="background: #1e3a5f;"></button>
+        <button class="swatch" data-theme="theme-amber" title="Ámbar Cálido" style="background: #6e472a;"></button>
+        <button class="swatch" data-theme="theme-forest" title="Bosque Tranquilo" style="background: #2a4a3c;"></button>
+        <button class="swatch" data-theme="theme-parchment" title="Pergamino Suave" style="background: #cbb493;"></button>
+      </div>
+
+      <div class="search-wrap">
+        <input id="archive-search" type="search" placeholder="BUSCAR... (archivos, notas, libros)" autocomplete="off">
+        <ul class="search-results" id="search-results"></ul>
+      </div>
+
+      <nav>
+        <a href="#collection" class="nav-link">Estantes</a>
+        <a href="about.html" class="nav-link">Acerca de</a>
+        
+        <!-- Botón de Perfil de Usuario como en el wireframe -->
+        <button class="user-profile-btn" id="user-profile" title="Perfil de Usuario">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 3c1.66 0 3 1.34 3 3s-1.34 3-3 3-3-1.34-3-3 1.34-3 3-3zm0 14.2c-2.5 0-4.71-1.28-6-3.22.03-1.99 4-3.08 6-3.08 1.99 0 5.97 1.09 6 3.08-1.29 1.94-3.5 3.22-6 3.22z"/>
+          </svg>
+        </button>
+
+        <button class="upload" id="add-item">+ Añadir archivo</button>
+        <button id="upload-button" hidden></button>
+        <button id="add-note" hidden></button>
+      </nav>
+    </header>
+
+    <!-- Elementos decorativos de la Habitación / Cuarto de Acuarela -->
+    <div class="room-door" aria-hidden="true" title="Puerta de la biblioteca">
+      <div class="door-panel upper"></div>
+      <div class="door-panel lower"></div>
+      <div class="door-knob"></div>
+    </div>
+
+    <!-- Pizarrón de Pared para Lista de Tareas y Notas -->
+    <aside class="task-list corkboard-tasks" aria-label="Pizarrón de Tareas">
+      <div class="corkboard-header">
+        <span class="corkboard-pin">📌</span>
+        <h3>Pizarrón de Tareas</h3>
+      </div>
+      <ul id="task-items">
+        <li>
+          <button class="task-check" aria-label="Completar tarea">□</button>
+          <span>Organizar estante de memorias</span>
+          <button class="task-edit" aria-label="Editar tarea">✎</button>
+          <button class="task-delete" aria-label="Eliminar tarea">×</button>
+        </li>
+        <li>
+          <button class="task-check" aria-label="Completar tarea">□</button>
+          <span>Etiquetar nuevo libro</span>
+          <button class="task-edit" aria-label="Editar tarea">✎</button>
+          <button class="task-delete" aria-label="Eliminar tarea">×</button>
+        </li>
+      </ul>
+      <button class="task-add" id="task-add">+ agregar tarea</button>
+    </aside>
+
+    <!-- Ventana de Acuarela a la derecha -->
+    <div class="cozy-window-frame" title="Ventana con vista a las colinas">
+      <img src="assets/window.png" alt="Vista acuarela desde la ventana" class="cozy-window-img">
+    </div>
+
+    <!-- Mueble lateral: Mesita de noche con Lámpara incandescente interactiva -->
+    <div class="side-furniture">
+      <div class="nightstand">
+        <div class="lamp-container lamp-on" id="room-lamp" title="Haz clic para encender/apagar la lámpara">
+          <div class="lamp-glow-effect"></div>
+          <div class="lamp-shade"></div>
+          <div class="lamp-base"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Taburete de madera con el Búho Sabio Barnaby -->
+    <div class="owl-stool-wrapper">
+      <div class="owl-stand-container" id="owl-mascot" title="Haz clic en Barnaby para recibir un consejo de lectura">
+        <div class="owl-cutout">
+          <img src="assets/owl.png" alt="Búho sabio Barnaby" class="owl-img">
+        </div>
+        <div class="owl-speech-bubble" id="owl-bubble">¡Hola! Soy Barnaby 🦉. Arrastra archivos aquí para guardarlos en tus estantes.</div>
+      </div>
+    </div>
+
+    <!-- Reloj Digital LED apoyado sobre la superficie de la biblioteca -->
+    <div class="clock-frame">
+      <time class="digital-clock" id="digital-clock" aria-label="Hora actual"></time>
+    </div>
+
+    <!-- Estantería Principal de Madera (Grid de Categorías / Libros) -->
+    <section class="bookcase home-screen" aria-label="Categorías de la biblioteca">
+
+      <button class="home-arrow prev" id="home-previous" aria-label="Categoría anterior">←</button>
+      <button class="home-arrow next" id="home-next" aria-label="Siguiente categoría">→</button>
+      <span class="home-counter" id="home-counter"></span>
+
+      <div class="shelf" data-category="stories">
+        <span class="shelf-label">01 — Historias &amp; Cartas</span>
+        <button class="category-edit" data-shelf="stories" aria-label="Editar Historias y cartas">✎</button>
+        <button class="book" style="--book:#8b262a;--height:138px" data-cat="stories" data-title="ejemplo" data-year="2026" data-kind="Archivo de ejemplo" data-desc="Un elemento de ejemplo para tu archivo en Convive.">
+          <span class="title">ejemplo</span>
+          <span class="year">2026</span>
+        </button>
+        <button class="shelf-more" data-shelf="stories" aria-label="Más opciones para Historias y cartas">+</button>
+      </div>
+
+      <div class="shelf" data-category="images">
+        <span class="shelf-label">02 — Imágenes &amp; Fotos</span>
+        <button class="category-edit" data-shelf="images" aria-label="Editar Imágenes y fotos">✎</button>
+        <button class="shelf-more" data-shelf="images" aria-label="Más opciones para Imágenes y fotos">+</button>
+      </div>
+
+      <div class="shelf" data-category="research">
+        <span class="shelf-label">03 — Investigación &amp; Curiosidades</span>
+        <button class="category-edit" data-shelf="research" aria-label="Editar Investigación y curiosidades">✎</button>
+        <button class="shelf-more" data-shelf="research" aria-label="Más opciones para Investigación y curiosidades">+</button>
+      </div>
+
+      <!-- Card + para crear nuevas categorías al final de los estantes -->
+      <button class="add-shelf-card" id="add-category" type="button" title="Crear un nuevo estante de categoría">
+        <span class="add-shelf-icon">+</span>
+        <span class="add-shelf-label">Nueva categoría</span>
+      </button>
+    </section>
+
+    <!-- Vista de categoría abierta / Cajón individual ampliado con zoom -->
+    <section class="category-page" id="category-page" aria-live="polite">
+      <div class="category-top">
+        <button class="back-home" id="back-home">← Estantes</button>
+        <h2 id="category-title"></h2>
+        <div class="category-actions">
+          <button class="upload" id="category-upload">+ Añadir archivo</button>
+          <button class="drawer-close-btn" id="close-category" title="Cerrar cajón">✕ Cerrar</button>
+        </div>
+      </div>
+      <div class="category-books" id="category-books">
+        <button class="shelf-arrow prev" id="previous-shelf" aria-label="Categoría anterior">←</button>
+        <button class="shelf-arrow next" id="next-shelf" aria-label="Siguiente categoría">→</button>
+        <button class="book-arrow prev" id="previous-books" aria-label="Libros anteriores">←</button>
+        <span class="book-page-label" id="book-page-label"></span>
+        <button class="book-arrow next" id="next-books" aria-label="Siguientes libros">→</button>
+      </div>
+    </section>
+
+    <!-- Suelo de madera y alfombra étnica de acuarela -->
+    <div class="floor" aria-hidden="true">
+      <div class="cozy-rug" title="Alfombra acogedora de la biblioteca"></div>
+    </div>
+
+    <!-- Indicador de Soltar Archivo (Drag and Drop) -->
+    <div class="drag-drop-zone" id="drag-drop-overlay">
+      <div class="drag-drop-box">
+        <span class="drag-icon">📚</span>
+        <h3>Suelta tus archivos aquí</h3>
+        <p>Se colocarán automáticamente como libros en tus estantes.</p>
+      </div>
+    </div>
+
+    <footer class="footer" id="about">
+      <span>Creado para memorias, hallazgos y descubrimientos.</span>
+      <span>© 2026 Convive</span>
+    </footer>
+  </main>
+
+  <!-- Diálogos / Modales -->
+  <dialog class="add-dialog" id="add-dialog">
+    <button class="add-close" id="add-dialog-close" aria-label="Cerrar">×</button>
+    
+    <!-- Paso 1: Selección de Opción -->
+    <div id="add-step-choice" class="add-step">
+      <h2>Añadir a la biblioteca</h2>
+      <p class="dialog-subtitle">Elige qué tipo de elemento deseas colocar en tus estantes.</p>
+      <div class="add-options" id="add-options">
+        <button id="choose-file" class="choice-card" type="button">
+          <span class="choice-icon">📁</span>
+          <div class="choice-info">
+            <strong>Subir Archivo</strong>
+            <span>Guarda una imagen, documento o PDF como libro</span>
+          </div>
+        </button>
+        <button id="choose-note" class="choice-card" type="button">
+          <span class="choice-icon">✍️</span>
+          <div class="choice-info">
+            <strong>Escribir Nota</strong>
+            <span>Deja una pequeña nota manuscrita en el estante</span>
+          </div>
+        </button>
+      </div>
+    </div>
+
+    <!-- Paso 2A: Formulario para Subir Archivo -->
+    <div id="add-step-file" class="add-step" style="display: none;">
+      <button class="step-back-btn" id="file-back-btn" type="button">← Cambiar opción</button>
+      <h2>Subir un archivo</h2>
+      <form class="custom-modal-form" id="custom-file-form">
+        <div class="form-group">
+          <label for="custom-file-input">Selecciona tu archivo</label>
+          <input type="file" id="custom-file-input" required>
+        </div>
+        <div class="form-group">
+          <label for="custom-file-category">Estante / Categoría</label>
+          <select id="custom-file-category"></select>
+        </div>
+        <div class="form-group">
+          <label for="custom-file-desc">Descripción (opcional)</label>
+          <textarea id="custom-file-desc" placeholder="Escribe una breve descripción..."></textarea>
+        </div>
+        <button type="submit" class="submit-btn primary">Colocar libro en el estante 📚</button>
+      </form>
+    </div>
+
+    <!-- Paso 2B: Formulario para Escribir Nota -->
+    <div id="add-step-note" class="add-step" style="display: none;">
+      <button class="step-back-btn" id="note-back-btn" type="button">← Cambiar opción</button>
+      <h2>Escribir una nota</h2>
+      <form class="custom-modal-form" id="custom-note-form">
+        <div class="form-group">
+          <label for="custom-note-category">Estante / Categoría</label>
+          <select id="custom-note-category"></select>
+        </div>
+        <div class="form-group">
+          <label for="custom-note-text">Contenido de la nota</label>
+          <textarea id="custom-note-text" placeholder="Escribe tu nota aquí..." required></textarea>
+        </div>
+        <button type="submit" class="submit-btn primary">Colocar nota en el estante 📌</button>
+      </form>
+    </div>
+  </dialog>
+
+  <dialog class="add-dialog" id="task-dialog">
+    <button class="add-close" id="task-dialog-close" aria-label="Cerrar">×</button>
+    <h2 id="task-dialog-title">Agregar una tarea</h2>
+    <form class="note-form open" id="task-form">
+      <textarea id="task-text" placeholder="Escribe una tarea..."></textarea>
+      <button type="submit">Guardar tarea</button>
+    </form>
+  </dialog>
+
+  <dialog id="archive-dialog">
+    <div class="modal">
+      <button class="close" aria-label="Cerrar">×</button>
+      <span class="tag" id="modal-kind"></span>
+      <h2 id="modal-title"></h2>
+      <p id="modal-desc"></p>
+      <img class="preview" id="image-preview" alt="Vista previa de imagen">
+      <iframe class="preview" id="document-preview" title="Vista previa de documento"></iframe>
+      <div class="preview-unavailable" id="preview-unavailable">Este formato no se puede previsualizar directamente en el navegador. Sube una imagen, PDF o texto para leerlo aquí sin descargarlo.</div>
+      <div class="metadata">
+        <div><span>Año</span><b id="modal-year"></b></div>
+        <div><span>Colección</span><b id="modal-category">Convive</b></div>
+      </div>
+      <div class="modal-actions">
+        <button id="edit-description">Editar descripción</button>
+        <button class="danger" id="delete-book">Eliminar libro</button>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="action-dialog" id="action-dialog">
+    <form method="dialog" class="action-modal">
+      <button class="close" value="cancel" aria-label="Cerrar">×</button>
+      <p class="action-eyebrow" id="action-eyebrow"></p>
+      <h2 id="action-title"></h2>
+      <p id="action-description"></p>
+      <div class="action-fields" id="action-fields"></div>
+      <div class="action-buttons" id="action-buttons"></div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+
