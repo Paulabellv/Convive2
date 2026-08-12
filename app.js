@@ -5,6 +5,72 @@ const escapeHtml = value => String(value).replace(/[&<>'"]/g, char => ({ '&': '&
 const SUPABASE_URL = window.CONVIVE_SUPABASE_URL || 'https://ffnepppmsoojjicjcvcl.supabase.co';
 const SUPABASE_ANON_KEY = window.CONVIVE_SUPABASE_ANON_KEY || 'sb_publishable_B6eBg_TTuamWtynTeGMjog_Rt-hunXb';
 
+/* Cliente HTTP REST Directo (Peticiones POST, GET, PATCH y DELETE nativas sin SDK) */
+async function supabasePost(table, payload) {
+  const url = `${SUPABASE_URL}/rest/v1/${table}`;
+  console.log(`[Convive Supabase REST] 📤 Enviando POST a: ${url}`, payload);
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation'
+    },
+    body: JSON.stringify(payload)
+  });
+  const responseText = await response.text();
+  if (!response.ok) {
+    console.error(`[Convive Supabase REST] ❌ Error HTTP ${response.status} en POST:`, responseText);
+    throw new Error(`HTTP ${response.status}: ${responseText}`);
+  }
+  let data = null;
+  try { data = JSON.parse(responseText); } catch(e) {}
+  console.log(`[Convive Supabase REST] ✅ POST exitoso (HTTP ${response.status}):`, data);
+  return data;
+}
+
+async function supabaseGet(table) {
+  const url = `${SUPABASE_URL}/rest/v1/${table}?select=*&order=created_at.asc`;
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+  return await response.json();
+}
+
+async function supabaseDelete(filter) {
+  const url = `${SUPABASE_URL}/rest/v1/archives?${filter}`;
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+    }
+  });
+  return response.ok;
+}
+
+async function supabasePatch(filter, payload) {
+  const url = `${SUPABASE_URL}/rest/v1/archives?${filter}`;
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+  return response.ok;
+}
+
 let supabaseClient = null;
 if (window.supabase) {
   try {
@@ -299,22 +365,15 @@ function shelfFor(categoryKey) {
 
 async function loadRemoteArchives() {
   let archives = [];
-
-  // 1. Consultar la base de datos de Supabase (FUENTE DE VERDAD PRIMARIA)
   let loadedFromSupabase = false;
-  if (supabaseClient) {
-    try {
-      const { data, error } = await supabaseClient.from('archives').select('*').order('created_at', { ascending: true });
-      if (!error && Array.isArray(data)) {
-        archives = data;
-        loadedFromSupabase = true;
-        console.log(`[Convive] Sincronizados ${data.length} registros desde Supabase Cloud DB.`);
-      } else if (error) {
-        console.warn('[Convive] Nota sobre Supabase DB:', error.message);
-      }
-    } catch (e) {
-      console.warn('[Convive] Error al conectar con Supabase DB:', e);
-    }
+
+  // 1. Consultar la base de datos de Supabase vía HTTP REST nativo (FUENTE DE VERDAD PRIMARIA)
+  try {
+    archives = await supabaseGet('archives');
+    loadedFromSupabase = true;
+    console.log(`[Convive Supabase REST] 📥 Sincronizados ${archives.length} registros desde Supabase Cloud DB.`);
+  } catch (e) {
+    console.warn('[Convive Supabase REST] ⚠️ No se pudo obtener datos via GET de Supabase DB:', e);
   }
 
   // 2. Si no hay conexión con Supabase DB, utilizar el respaldo local
@@ -728,15 +787,33 @@ async function editCategory(button) {
       fields: [{ name: 'name', value: name }],
       actions: [cancelAction, saveAction]
     });
+async function editCategory(button) {
+  const shelf = button.closest('.shelf');
+  const id = shelf.dataset.category;
+  const name = categoryNames[id] || id;
+  const choice = await openAction({
+    eyebrow: 'Categoría',
+    title: name,
+    description: 'Renombrar o eliminar esta estantería.',
+    actions: [cancelAction, { label: 'Eliminar', value: 'delete', className: 'danger' }, { label: 'Renombrar', value: 'rename', className: 'primary' }]
+  });
+
+  if (choice.action === 'rename') {
+    const result = await openAction({
+      eyebrow: 'Categoría',
+      title: 'Renombrar categoría',
+      fields: [{ name: 'name', value: name }],
+      actions: [cancelAction, saveAction]
+    });
     if (result.action === 'save' && result.values.name.trim()) {
       const newName = result.values.name.trim();
       categoryNames[id] = newName;
       saveLocalCategory(id, newName);
       renumberShelves();
 
-      if (supabaseClient) {
-        supabaseClient.from('archives').update({ title: newName }).eq('file_path', `category/${id}`).catch(() => {});
-      }
+      try {
+        await supabasePatch(`file_path=eq.${encodeURIComponent('category/' + id)}`, { title: newName });
+      } catch (e) {}
       notify('Estante renombrado y sincronizado ✨');
     }
   }
@@ -753,9 +830,9 @@ async function editCategory(button) {
     renumberShelves();
     renderHomeCarousel();
 
-    if (supabaseClient) {
-      supabaseClient.from('archives').delete().eq('file_path', `category/${id}`).catch(() => {});
-    }
+    try {
+      await supabaseDelete(`file_path=eq.${encodeURIComponent('category/' + id)}`);
+    } catch (e) {}
     notify('Estante eliminado.');
   }
 }
@@ -787,9 +864,9 @@ async function addCategory(name, existingId = null, skipNotify = false) {
   homeIndex = Math.floor((items.length - 1) / perPage);
   renderHomeCarousel();
 
-  if (!existingId && supabaseClient) {
+  if (!existingId) {
     try {
-      const { error } = await supabaseClient.from('archives').insert({
+      await supabasePost('archives', {
         id: crypto.randomUUID(),
         category: 'system_category',
         title: name,
@@ -798,20 +875,14 @@ async function addCategory(name, existingId = null, skipNotify = false) {
         mime_type: 'convive/category',
         size_bytes: 0
       });
-      if (error) {
-        console.error('[Convive] Error al guardar categoría en Supabase DB:', error.message);
-        notify(`Error Supabase: ${error.message}`);
-      } else {
-        console.log(`[Convive] Categoría "${name}" guardada exitosamente en Supabase Cloud DB.`);
-        saveLocalCategory(id, name);
-        if (!skipNotify) notify('Categoría guardada en la base de datos de Supabase ✨');
-      }
+      console.log(`[Convive Supabase REST] ✅ Categoría "${name}" enviada exitosamente por POST a Supabase DB.`);
+      saveLocalCategory(id, name);
+      if (!skipNotify) notify('Categoría guardada en la base de datos de Supabase ✨');
     } catch (e) {
-      console.error('[Convive] Excepción al guardar categoría en Supabase DB:', e);
+      console.error('[Convive Supabase REST] Error al enviar POST de categoría a Supabase DB:', e);
+      saveLocalCategory(id, name);
+      if (!skipNotify) notify(`Guardado localmente (${e.message})`);
     }
-  } else if (!existingId) {
-    saveLocalCategory(id, name);
-    if (!skipNotify) notify('Estante creado de forma local');
   }
 }
 
@@ -989,21 +1060,8 @@ async function processFileUpload(file, category, description = '') {
   book.innerHTML = `<span class="title"></span><span class="year">${new Date().getFullYear()}</span>`;
   book.querySelector('.title').textContent = title;
 
-  if (supabaseClient) {
-    let publicFileUrl = null;
-    try {
-      const { error: storageError } = await supabaseClient.storage.from('archives').upload(filePath, file, { contentType: file.type || 'application/octet-stream', upsert: true });
-      if (!storageError) {
-        publicFileUrl = supabaseClient.storage.from('archives').getPublicUrl(filePath).data?.publicUrl;
-      }
-    } catch (e) {}
-
-    if (publicFileUrl) {
-      localRecord.url = publicFileUrl;
-      book.dataset.url = publicFileUrl;
-    }
-
-    const { error: dbError } = await supabaseClient.from('archives').insert({
+  try {
+    await supabasePost('archives', {
       id: archiveId,
       category,
       title,
@@ -1012,15 +1070,11 @@ async function processFileUpload(file, category, description = '') {
       mime_type: file.type || 'application/octet-stream',
       size_bytes: file.size || 0
     });
-
-    if (dbError) {
-      console.warn('[Convive] Advertencia al insertar en Supabase DB:', dbError.message);
-      notify(`Aviso BD: ${dbError.message}`);
-    } else {
-      console.log('[Convive] Registro guardado con éxito en Supabase DB.');
-      saveLocalArchive(localRecord);
-      notify(`"${title}" guardado en Supabase ✨`);
-    }
+    console.log('[Convive Supabase REST] 📤 Archivo guardado con éxito en Supabase DB via POST.');
+    saveLocalArchive(localRecord);
+  } catch (e) {
+    console.error('[Convive Supabase REST] ❌ Error enviando POST:', e);
+    saveLocalArchive(localRecord);
   }
 
   const shelf = shelfFor(category) || document.querySelector('.shelf');
