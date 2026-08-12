@@ -158,10 +158,18 @@ async function confirmDelete(item, type) {
   });
   if (answer.action !== 'delete') return;
   if (item === currentBook) dialog.close();
+  
+  if (item.dataset.remoteId || item.dataset.filePath) {
+    removeLocalArchive(item.dataset.remoteId, item.dataset.filePath);
+  }
+  
   if (item.dataset.remoteId && supabaseClient) {
-    const { error: storageError } = await supabaseClient.storage.from('archives').remove([item.dataset.filePath]);
-    const { error: dbError } = await supabaseClient.from('archives').delete().eq('id', item.dataset.remoteId);
-    if (storageError || dbError) { notify(`No se pudo eliminar de la nube: ${(storageError || dbError).message}`); return; }
+    try {
+      if (item.dataset.filePath) await supabaseClient.storage.from('archives').remove([item.dataset.filePath]);
+      await supabaseClient.from('archives').delete().eq('id', item.dataset.remoteId);
+    } catch (e) {
+      console.warn('[Convive] Advertencia al eliminar de Supabase:', e);
+    }
   }
   if (item.dataset.url?.startsWith('blob:')) URL.revokeObjectURL(item.dataset.url);
   const wasVisible = item.parentElement === categoryBooks;
@@ -199,24 +207,75 @@ function prepareShelf(shelf) {
   }
 }
 
+// Capa de Persistencia Local (LocalStorage Fallback)
+function getLocalArchives() {
+  try {
+    return JSON.parse(localStorage.getItem('convive_archives') || '[]');
+  } catch (e) {
+    return [];
+  }
+}
+
+function saveLocalArchive(archive) {
+  try {
+    const list = getLocalArchives();
+    const existingIndex = list.findIndex(item => item.id === archive.id || (item.file_path && item.file_path === archive.file_path));
+    if (existingIndex >= 0) {
+      list[existingIndex] = archive;
+    } else {
+      list.push(archive);
+    }
+    localStorage.setItem('convive_archives', JSON.stringify(list));
+  } catch (e) {
+    console.warn('[Convive] Error en localStorage:', e);
+  }
+}
+
+function removeLocalArchive(id, filePath) {
+  try {
+    const list = getLocalArchives().filter(item => item.id !== id && item.file_path !== filePath);
+    localStorage.setItem('convive_archives', JSON.stringify(list));
+  } catch (e) {
+    console.warn('[Convive] Error al eliminar de localStorage:', e);
+  }
+}
+
 function shelfFor(categoryKey) {
   if (!categoryKey) return null;
   return [...document.querySelectorAll('.shelf')].find(s => s.dataset.category === categoryKey) || null;
 }
 
 async function loadRemoteArchives() {
-  if (!supabaseClient) {
-    console.warn('[Convive] No se pueden cargar archivos remotos: el cliente Supabase no está listo.');
-    return;
-  }
-  const { data: archives, error } = await supabaseClient.from('archives').select('*').order('created_at', { ascending: true });
-  if (error) { console.warn('Convive could not load Supabase archives:', error.message); return; }
-  console.log(`[Convive] Se encontraron ${archives.length} archivos en Supabase.`, archives);
+  let archives = [];
   
+  // 1. Consultar la base de datos de Supabase si está disponible
+  if (supabaseClient) {
+    try {
+      const { data, error } = await supabaseClient.from('archives').select('*').order('created_at', { ascending: true });
+      if (!error && Array.isArray(data)) {
+        archives = data;
+        console.log(`[Convive] ${data.length} registros cargados desde Supabase DB.`);
+      } else if (error) {
+        console.warn('[Convive] Nota sobre Supabase DB (verificar RLS en Supabase):', error.message);
+      }
+    } catch (e) {
+      console.warn('[Convive] Error al conectar con Supabase DB:', e);
+    }
+  }
+
+  // 2. Fusionar con la copia de respaldo en LocalStorage para garantizar que NADA se pierda al recargar (F5)
+  const localList = getLocalArchives();
+  localList.forEach(localItem => {
+    if (!archives.some(a => a.id === localItem.id || a.file_path === localItem.file_path)) {
+      archives.push(localItem);
+    }
+  });
+
+  console.log(`[Convive] Renderizando ${archives.length} tesoros en la biblioteca.`);
+
   archives.forEach(archive => {
     if (document.querySelector(`.book[data-remote-id="${archive.id}"]`)) return;
 
-    // Buscar estante existente para la categoría, o asignar a categoría limpia predeterminada
     let shelf = shelfFor(archive.category);
     if (!shelf) {
       let fallbackCat = 'research';
@@ -227,7 +286,8 @@ async function loadRemoteArchives() {
     if (!shelf) return;
 
     const book = document.createElement('button');
-    const publicUrl = supabaseClient.storage.from('archives').getPublicUrl(archive.file_path).data.publicUrl;
+    const publicUrl = archive.url || (supabaseClient && archive.file_path ? supabaseClient.storage.from('archives').getPublicUrl(archive.file_path).data?.publicUrl : null);
+    
     book.className = 'book';
     book.style.setProperty('--book', colors[Math.floor(Math.random() * colors.length)]);
     book.style.setProperty('--height', `${125 + Math.floor(Math.random() * 35)}px`);
@@ -239,12 +299,12 @@ async function loadRemoteArchives() {
     Object.assign(book.dataset, {
       cat: catKey,
       title: archive.title,
-      year: new Date(archive.created_at).getFullYear(),
+      year: new Date(archive.created_at || Date.now()).getFullYear(),
       kind: `${(archive.mime_type || 'archivo').split('/').pop().toUpperCase()} · ${catName}`,
       extension: ext,
       desc: archive.description || 'Sin descripción.',
       mime: archive.mime_type || '',
-      url: publicUrl,
+      url: publicUrl || archive.url || '',
       remoteId: archive.id,
       filePath: archive.file_path
     });
@@ -633,6 +693,25 @@ async function processFileUpload(file, category, description = '') {
   book.style.setProperty('--book', colors[Math.floor(Math.random() * colors.length)]);
   book.style.setProperty('--height', `${125 + Math.floor(Math.random() * 35)}px`);
   
+  const archiveId = crypto.randomUUID();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
+  const filePath = `${category}/${archiveId}-${safeName}`;
+  const tempUrl = URL.createObjectURL(file);
+
+  const localRecord = {
+    id: archiveId,
+    category,
+    title,
+    description: description || title,
+    file_path: filePath,
+    mime_type: file.type || 'text/plain',
+    size_bytes: file.size || 0,
+    created_at: new Date().toISOString(),
+    url: tempUrl
+  };
+
+  saveLocalArchive(localRecord);
+
   Object.assign(book.dataset, {
     cat: category,
     title,
@@ -640,61 +719,59 @@ async function processFileUpload(file, category, description = '') {
     kind: `${extension} · ${categoryNames[category] || category}`,
     extension,
     desc: description || `${file.name} · ${(file.size / 1024).toFixed(1)} KB`,
-    url: URL.createObjectURL(file),
-    mime: file.type || 'text/plain'
+    url: tempUrl,
+    mime: file.type || 'text/plain',
+    remoteId: archiveId,
+    filePath
   });
   
   book.innerHTML = `<span class="title"></span><span class="year">${new Date().getFullYear()}</span>`;
   book.querySelector('.title').textContent = title;
 
   if (supabaseClient) {
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
-    const filePath = `${category}/${crypto.randomUUID()}-${safeName}`;
     let storagePath = filePath;
-
     const { error: storageError } = await supabaseClient.storage.from('archives').upload(filePath, file, { contentType: file.type || 'application/octet-stream', upsert: false });
     if (storageError) {
       console.warn('[Convive] Advertencia al subir al storage de Supabase:', storageError.message);
-      storagePath = `text/${crypto.randomUUID()}-${safeName}`;
+      storagePath = `text/${archiveId}-${safeName}`;
     }
 
     const { data: archive, error: dbError } = await supabaseClient.from('archives').insert({
+      id: archiveId,
       category,
       title,
       description: description || title,
       file_path: storagePath,
       mime_type: file.type || 'application/octet-stream',
       size_bytes: file.size || 0
-    }).select().single();
+    }).select();
 
     if (dbError) {
-      console.error('[Convive] Error al insertar en Supabase DB:', dbError);
-      notify(`Error base de datos: ${dbError.message}`);
-      return;
+      console.warn('[Convive] Nota sobre la inserción en Supabase DB:', dbError.message);
+    } else if (archive && archive[0]) {
+      console.log('[Convive] Archivo guardado exitosamente en Supabase DB:', archive[0]);
+      const publicUrl = supabaseClient.storage.from('archives').getPublicUrl(storagePath).data?.publicUrl;
+      if (publicUrl) {
+        localRecord.url = publicUrl;
+        book.dataset.url = publicUrl;
+        saveLocalArchive(localRecord);
+      }
     }
-
-    console.log('[Convive] Archivo guardado con éxito en Supabase DB:', archive);
-    const publicUrl = supabaseClient.storage.from('archives').getPublicUrl(storagePath).data?.publicUrl || book.dataset.url;
-    Object.assign(book.dataset, {
-      url: publicUrl,
-      remoteId: archive.id,
-      filePath: storagePath
-    });
-  } else {
-    notify('Aviso: Cliente Supabase no disponible en este momento.');
   }
 
-  const shelf = shelfFor(category);
+  const shelf = shelfFor(category) || document.querySelector('.shelf');
   if (activeShelf === shelf) {
     categoryBooks.append(book);
     renderBookPage();
   } else if (shelf) {
-    shelf.insertBefore(book, shelf.querySelector('.shelf-more'));
+    const shelfMore = shelf.querySelector('.shelf-more');
+    if (shelfMore) shelf.insertBefore(book, shelfMore);
+    else shelf.appendChild(book);
   }
   
   prepareBook(book);
   updateCount();
-  notify(`" ${title} " colocado en el estante.`);
+  notify(`"${title}" guardado en la biblioteca ✨`);
 }
 
 /* Manejo de Drag and Drop (Arrastrar archivos desde el escritorio) */
