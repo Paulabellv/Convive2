@@ -780,7 +780,7 @@ async function processFileUpload(file, category, description = '') {
       book.dataset.url = publicFileUrl;
     }
 
-    const { data: archive, error: dbError } = await supabaseClient.from('archives').insert({
+    const { error: dbError } = await supabaseClient.from('archives').insert({
       id: archiveId,
       category,
       title,
@@ -788,13 +788,15 @@ async function processFileUpload(file, category, description = '') {
       file_path: filePath,
       mime_type: file.type || 'application/octet-stream',
       size_bytes: file.size || 0
-    }).select();
+    });
 
     if (dbError) {
-      console.warn('[Convive] Error o nota al insertar en Supabase DB:', dbError.message);
-    } else if (archive && archive[0]) {
-      console.log('[Convive] Archivo guardado exitosamente en Supabase Cloud DB:', archive[0]);
+      console.warn('[Convive] Advertencia al insertar en Supabase DB:', dbError.message);
+      notify(`Aviso BD: ${dbError.message}`);
+    } else {
+      console.log('[Convive] Registro guardado con éxito en Supabase DB.');
       saveLocalArchive(localRecord);
+      notify(`"${title}" guardado en Supabase ✨`);
     }
   }
 
