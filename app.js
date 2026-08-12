@@ -203,37 +203,6 @@ function shelfFor(categoryKey) {
   return [...document.querySelectorAll('.shelf')].find(s => s.dataset.category === categoryKey) || null;
 }
 
-function ensureShelf(categoryKey, defaultTitle) {
-  let shelf = shelfFor(categoryKey);
-  const homeGrid = document.querySelector('.home-screen') || caseEl;
-  if (!shelf) {
-    const addCard = document.querySelector('#add-category');
-    shelf = document.createElement('div');
-    shelf.className = 'shelf';
-    shelf.dataset.category = categoryKey;
-    if (!categoryNames[categoryKey]) {
-      categoryNames[categoryKey] = defaultTitle || `Estante ${String(categoryKey).replace('category-', '#')}`;
-    }
-    const title = categoryNames[categoryKey];
-    shelf.innerHTML = `
-      <span class="shelf-label">00 — ${escapeHtml(title)}</span>
-      <button class="category-edit" data-shelf="${escapeHtml(categoryKey)}" aria-label="Editar ${escapeHtml(title)}">✎</button>
-      <button class="shelf-more" data-shelf="${escapeHtml(categoryKey)}" aria-label="Más opciones para ${escapeHtml(title)}">+</button>
-    `;
-    if (addCard && addCard.parentElement) {
-      addCard.parentElement.insertBefore(shelf, addCard);
-    } else if (homeGrid) {
-      homeGrid.appendChild(shelf);
-    }
-    prepareShelf(shelf);
-    renumberShelves();
-    renderHomeCarousel();
-  } else {
-    prepareShelf(shelf);
-  }
-  return shelf;
-}
-
 async function loadRemoteArchives() {
   if (!supabaseClient) {
     console.warn('[Convive] No se pueden cargar archivos remotos: el cliente Supabase no está listo.');
@@ -242,21 +211,56 @@ async function loadRemoteArchives() {
   const { data: archives, error } = await supabaseClient.from('archives').select('*').order('created_at', { ascending: true });
   if (error) { console.warn('Convive could not load Supabase archives:', error.message); return; }
   console.log(`[Convive] Se encontraron ${archives.length} archivos en Supabase.`, archives);
+  
   archives.forEach(archive => {
-    let shelf = shelfFor(archive.category) || ensureShelf(archive.category, archive.title ? `Colección (${archive.title})` : null);
-    if (!shelf || document.querySelector(`.book[data-remote-id="${archive.id}"]`)) return;
+    if (document.querySelector(`.book[data-remote-id="${archive.id}"]`)) return;
+
+    // Buscar estante existente para la categoría, o asignar a categoría limpia predeterminada
+    let shelf = shelfFor(archive.category);
+    if (!shelf) {
+      let fallbackCat = 'research';
+      if (archive.mime_type && archive.mime_type.startsWith('image/')) fallbackCat = 'images';
+      else if (archive.mime_type && (archive.mime_type.startsWith('text/') || archive.mime_type === 'application/pdf')) fallbackCat = 'stories';
+      shelf = shelfFor(fallbackCat) || document.querySelector('.shelf');
+    }
+    if (!shelf) return;
+
     const book = document.createElement('button');
     const publicUrl = supabaseClient.storage.from('archives').getPublicUrl(archive.file_path).data.publicUrl;
     book.className = 'book';
     book.style.setProperty('--book', colors[Math.floor(Math.random() * colors.length)]);
     book.style.setProperty('--height', `${125 + Math.floor(Math.random() * 35)}px`);
-    Object.assign(book.dataset, { cat: archive.category, title: archive.title, year: new Date(archive.created_at).getFullYear(), kind: `${(archive.mime_type || 'archivo').split('/').pop().toUpperCase()} · ${categoryNames[archive.category] || archive.category}`, extension: (archive.title.split('.').pop() || 'ARCH').toUpperCase(), desc: archive.description || 'Sin descripción.', mime: archive.mime_type || '', url: publicUrl, remoteId: archive.id, filePath: archive.file_path });
+    
+    const catKey = shelf.dataset.category;
+    const catName = categoryNames[catKey] || catKey;
+    const ext = (archive.title.split('.').pop() || 'ARCH').toUpperCase();
+
+    Object.assign(book.dataset, {
+      cat: catKey,
+      title: archive.title,
+      year: new Date(archive.created_at).getFullYear(),
+      kind: `${(archive.mime_type || 'archivo').split('/').pop().toUpperCase()} · ${catName}`,
+      extension: ext,
+      desc: archive.description || 'Sin descripción.',
+      mime: archive.mime_type || '',
+      url: publicUrl,
+      remoteId: archive.id,
+      filePath: archive.file_path
+    });
+
     book.innerHTML = '<span class="title"></span><span class="year"></span>';
     book.querySelector('.title').textContent = archive.title;
     book.querySelector('.year').textContent = book.dataset.year;
-    shelf.insertBefore(book, shelf.querySelector('.shelf-more'));
+
+    const shelfMore = shelf.querySelector('.shelf-more');
+    if (shelfMore) {
+      shelf.insertBefore(book, shelfMore);
+    } else {
+      shelf.appendChild(book);
+    }
     prepareBook(book);
   });
+
   updateCount();
   renumberShelves();
   renderHomeCarousel();
