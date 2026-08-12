@@ -207,7 +207,21 @@ function prepareShelf(shelf) {
   }
 }
 
-// Capa de Persistencia Local (LocalStorage Fallback)
+// Helper para convertir archivos a Data URL (Base64) garantizando sincronización entre diferentes dispositivos
+function fileToDataUrl(file) {
+  return new Promise((resolve) => {
+    if (!file || file.size > 3 * 1024 * 1024) {
+      resolve(null);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => resolve(null);
+    reader.readAsDataURL(file);
+  });
+}
+
+// Capa de Persistencia Local (LocalStorage Cache)
 function getLocalArchives() {
   try {
     return JSON.parse(localStorage.getItem('convive_archives') || '[]');
@@ -248,22 +262,22 @@ function shelfFor(categoryKey) {
 async function loadRemoteArchives() {
   let archives = [];
   
-  // 1. Consultar la base de datos de Supabase si está disponible
+  // 1. Consultar la base de datos de Supabase desde cualquier dispositivo
   if (supabaseClient) {
     try {
       const { data, error } = await supabaseClient.from('archives').select('*').order('created_at', { ascending: true });
       if (!error && Array.isArray(data)) {
         archives = data;
-        console.log(`[Convive] ${data.length} registros cargados desde Supabase DB.`);
+        console.log(`[Convive] Sincronizados ${data.length} tesoros desde Supabase Cloud DB.`);
       } else if (error) {
-        console.warn('[Convive] Nota sobre Supabase DB (verificar RLS en Supabase):', error.message);
+        console.warn('[Convive] Nota sobre Supabase DB:', error.message);
       }
     } catch (e) {
       console.warn('[Convive] Error al conectar con Supabase DB:', e);
     }
   }
 
-  // 2. Fusionar con la copia de respaldo en LocalStorage para garantizar que NADA se pierda al recargar (F5)
+  // 2. Fusionar con caché local
   const localList = getLocalArchives();
   localList.forEach(localItem => {
     if (!archives.some(a => a.id === localItem.id || a.file_path === localItem.file_path)) {
@@ -285,9 +299,24 @@ async function loadRemoteArchives() {
     }
     if (!shelf) return;
 
+    // Extraer descripción limpia y Data URL incrustado si existe
+    let cleanDesc = archive.description || 'Sin descripción.';
+    let embeddedUrl = null;
+    if (archive.description && archive.description.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(archive.description);
+        cleanDesc = parsed.desc || cleanDesc;
+        embeddedUrl = parsed.dataUrl || null;
+      } catch (e) {}
+    }
+
+    // Determinar la URL pública
+    let publicUrl = embeddedUrl || archive.url;
+    if (!publicUrl && supabaseClient && archive.file_path) {
+      publicUrl = supabaseClient.storage.from('archives').getPublicUrl(archive.file_path).data?.publicUrl;
+    }
+
     const book = document.createElement('button');
-    const publicUrl = archive.url || (supabaseClient && archive.file_path ? supabaseClient.storage.from('archives').getPublicUrl(archive.file_path).data?.publicUrl : null);
-    
     book.className = 'book';
     book.style.setProperty('--book', colors[Math.floor(Math.random() * colors.length)]);
     book.style.setProperty('--height', `${125 + Math.floor(Math.random() * 35)}px`);
@@ -302,9 +331,9 @@ async function loadRemoteArchives() {
       year: new Date(archive.created_at || Date.now()).getFullYear(),
       kind: `${(archive.mime_type || 'archivo').split('/').pop().toUpperCase()} · ${catName}`,
       extension: ext,
-      desc: archive.description || 'Sin descripción.',
+      desc: cleanDesc,
       mime: archive.mime_type || '',
-      url: publicUrl || archive.url || '',
+      url: publicUrl || '',
       remoteId: archive.id,
       filePath: archive.file_path
     });
@@ -696,13 +725,22 @@ async function processFileUpload(file, category, description = '') {
   const archiveId = crypto.randomUUID();
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
   const filePath = `${category}/${archiveId}-${safeName}`;
-  const tempUrl = URL.createObjectURL(file);
+  const dataUrl = await fileToDataUrl(file);
+  const tempUrl = dataUrl || URL.createObjectURL(file);
+
+  let finalDescription = description || title;
+  if (dataUrl) {
+    finalDescription = JSON.stringify({
+      desc: description || title,
+      dataUrl: dataUrl
+    });
+  }
 
   const localRecord = {
     id: archiveId,
     category,
     title,
-    description: description || title,
+    description: finalDescription,
     file_path: filePath,
     mime_type: file.type || 'text/plain',
     size_bytes: file.size || 0,
@@ -729,33 +767,34 @@ async function processFileUpload(file, category, description = '') {
   book.querySelector('.title').textContent = title;
 
   if (supabaseClient) {
-    let storagePath = filePath;
-    const { error: storageError } = await supabaseClient.storage.from('archives').upload(filePath, file, { contentType: file.type || 'application/octet-stream', upsert: false });
-    if (storageError) {
-      console.warn('[Convive] Advertencia al subir al storage de Supabase:', storageError.message);
-      storagePath = `text/${archiveId}-${safeName}`;
+    let publicFileUrl = null;
+    try {
+      const { error: storageError } = await supabaseClient.storage.from('archives').upload(filePath, file, { contentType: file.type || 'application/octet-stream', upsert: true });
+      if (!storageError) {
+        publicFileUrl = supabaseClient.storage.from('archives').getPublicUrl(filePath).data?.publicUrl;
+      }
+    } catch (e) {}
+
+    if (publicFileUrl) {
+      localRecord.url = publicFileUrl;
+      book.dataset.url = publicFileUrl;
     }
 
     const { data: archive, error: dbError } = await supabaseClient.from('archives').insert({
       id: archiveId,
       category,
       title,
-      description: description || title,
-      file_path: storagePath,
+      description: finalDescription,
+      file_path: filePath,
       mime_type: file.type || 'application/octet-stream',
       size_bytes: file.size || 0
     }).select();
 
     if (dbError) {
-      console.warn('[Convive] Nota sobre la inserción en Supabase DB:', dbError.message);
+      console.warn('[Convive] Error o nota al insertar en Supabase DB:', dbError.message);
     } else if (archive && archive[0]) {
-      console.log('[Convive] Archivo guardado exitosamente en Supabase DB:', archive[0]);
-      const publicUrl = supabaseClient.storage.from('archives').getPublicUrl(storagePath).data?.publicUrl;
-      if (publicUrl) {
-        localRecord.url = publicUrl;
-        book.dataset.url = publicUrl;
-        saveLocalArchive(localRecord);
-      }
+      console.log('[Convive] Archivo guardado exitosamente en Supabase Cloud DB:', archive[0]);
+      saveLocalArchive(localRecord);
     }
   }
 
