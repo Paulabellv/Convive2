@@ -2,9 +2,19 @@ const caseEl = document.querySelector('.bookcase');
 const colors = ['#642226', '#273751', '#704D39', '#66768D', '#8b5a36', '#2b4360'];
 const categoryNames = { stories: 'Historias & Cartas', images: 'Imágenes & Fotos', research: 'Investigación & Curiosidades' };
 const escapeHtml = value => String(value).replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
-const supabaseClient = window.CONVIVE_SUPABASE_URL && window.CONVIVE_SUPABASE_ANON_KEY && window.supabase
-  ? window.supabase.createClient(window.CONVIVE_SUPABASE_URL, window.CONVIVE_SUPABASE_ANON_KEY)
-  : null;
+let supabaseClient = null;
+if (!window.supabase) {
+  console.error('[Convive] La librería Supabase (supabase-js) no se pudo cargar desde el CDN.');
+} else if (!window.CONVIVE_SUPABASE_URL || !window.CONVIVE_SUPABASE_ANON_KEY) {
+  console.error('[Convive] Faltan la URL (CONVIVE_SUPABASE_URL) o la Clave Anónima (CONVIVE_SUPABASE_ANON_KEY) en supabase-config.js.');
+} else {
+  try {
+    supabaseClient = window.supabase.createClient(window.CONVIVE_SUPABASE_URL, window.CONVIVE_SUPABASE_ANON_KEY);
+    console.log('[Convive] Cliente de Supabase inicializado exitosamente.');
+  } catch (err) {
+    console.error('[Convive] Error al crear el cliente de Supabase:', err);
+  }
+}
 
 const dialog = document.querySelector('#archive-dialog');
 const imagePreview = document.querySelector('#image-preview');
@@ -174,7 +184,10 @@ function prepareBook(book) {
 document.querySelectorAll('.book').forEach(prepareBook);
 
 async function loadRemoteArchives() {
-  if (!supabaseClient) return;
+  if (!supabaseClient) {
+    console.warn('[Convive] No se pueden cargar archivos remotos: el cliente Supabase no está listo.');
+    return;
+  }
   const { data: archives, error } = await supabaseClient.from('archives').select('*').order('created_at', { ascending: true });
   if (error) { console.warn('Convive could not load Supabase archives:', error.message); return; }
   archives.forEach(archive => {
