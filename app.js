@@ -787,24 +787,6 @@ async function editCategory(button) {
       fields: [{ name: 'name', value: name }],
       actions: [cancelAction, saveAction]
     });
-async function editCategory(button) {
-  const shelf = button.closest('.shelf');
-  const id = shelf.dataset.category;
-  const name = categoryNames[id] || id;
-  const choice = await openAction({
-    eyebrow: 'Categoría',
-    title: name,
-    description: 'Renombrar o eliminar esta estantería.',
-    actions: [cancelAction, { label: 'Eliminar', value: 'delete', className: 'danger' }, { label: 'Renombrar', value: 'rename', className: 'primary' }]
-  });
-
-  if (choice.action === 'rename') {
-    const result = await openAction({
-      eyebrow: 'Categoría',
-      title: 'Renombrar categoría',
-      fields: [{ name: 'name', value: name }],
-      actions: [cancelAction, saveAction]
-    });
     if (result.action === 'save' && result.values.name.trim()) {
       const newName = result.values.name.trim();
       categoryNames[id] = newName;
