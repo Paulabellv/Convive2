@@ -2,18 +2,19 @@ const caseEl = document.querySelector('.home-screen') || document.querySelector(
 const colors = ['#642226', '#273751', '#704D39', '#66768D', '#8b5a36', '#2b4360'];
 const categoryNames = { stories: 'Historias & Cartas', images: 'Imágenes & Fotos', research: 'Investigación & Curiosidades' };
 const escapeHtml = value => String(value).replace(/[&<>'"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
+const SUPABASE_URL = window.CONVIVE_SUPABASE_URL || 'https://ffnepppmsoojjicjcvcl.supabase.co';
+const SUPABASE_ANON_KEY = window.CONVIVE_SUPABASE_ANON_KEY || 'sb_publishable_B6eBg_TTuamWtynTeGMjog_Rt-hunXb';
+
 let supabaseClient = null;
-if (!window.supabase) {
-  console.error('[Convive] La librería Supabase (supabase-js) no se pudo cargar desde el CDN.');
-} else if (!window.CONVIVE_SUPABASE_URL || !window.CONVIVE_SUPABASE_ANON_KEY) {
-  console.error('[Convive] Faltan la URL (CONVIVE_SUPABASE_URL) o la Clave Anónima (CONVIVE_SUPABASE_ANON_KEY) en supabase-config.js.');
-} else {
+if (window.supabase) {
   try {
-    supabaseClient = window.supabase.createClient(window.CONVIVE_SUPABASE_URL, window.CONVIVE_SUPABASE_ANON_KEY);
-    console.log('[Convive] Cliente de Supabase inicializado exitosamente.');
+    supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    console.log('[Convive] Cliente de Supabase inicializado correctamente con:', SUPABASE_URL);
   } catch (err) {
-    console.error('[Convive] Error al crear el cliente de Supabase:', err);
+    console.error('[Convive] Error al inicializar cliente de Supabase:', err);
   }
+} else {
+  console.error('[Convive] No se encontró la librería window.supabase desde CDN.');
 }
 
 const dialog = document.querySelector('#archive-dialog');
@@ -400,22 +401,17 @@ customFileForm?.addEventListener('submit', async event => {
   await processFileUpload(file, category, description);
 });
 
-customNoteForm?.addEventListener('submit', event => {
+customNoteForm?.addEventListener('submit', async event => {
   event.preventDefault();
   const text = document.querySelector('#custom-note-text').value.trim();
   const category = document.querySelector('#custom-note-category').value;
   if (!text) return;
-  const shelf = shelfFor(category);
-  const note = document.createElement('div');
-  note.className = 'note';
-  note.dataset.cat = category;
-  note.innerHTML = `<span class="note-text"></span><button class="note-delete" title="Eliminar nota">✕</button>`;
-  note.querySelector('.note-text').textContent = text;
-  if (activeShelf === shelf) categoryBooks.append(note);
-  else if (shelf) shelf.insertBefore(note, shelf.querySelector('.shelf-more'));
-  attachNote(note);
   addDialog.close();
-  notify('Nota de papel colocada en el estante.');
+
+  // Convertir la nota a un archivo de texto para persistir en Supabase
+  const safeTitle = text.slice(0, 20).replace(/[^a-zA-Z0-9]/g, '-');
+  const noteFile = new File([text], `Nota-${safeTitle || 'nota'}.txt`, { type: 'text/plain' });
+  await processFileUpload(noteFile, category, text);
 });
 
 const taskDialog = document.querySelector('#task-dialog');
@@ -645,7 +641,7 @@ async function processFileUpload(file, category, description = '') {
     extension,
     desc: description || `${file.name} · ${(file.size / 1024).toFixed(1)} KB`,
     url: URL.createObjectURL(file),
-    mime: file.type
+    mime: file.type || 'text/plain'
   });
   
   book.innerHTML = `<span class="title"></span><span class="year">${new Date().getFullYear()}</span>`;
@@ -654,27 +650,38 @@ async function processFileUpload(file, category, description = '') {
   if (supabaseClient) {
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '-');
     const filePath = `${category}/${crypto.randomUUID()}-${safeName}`;
-    const { error: storageError } = await supabaseClient.storage.from('archives').upload(filePath, file, { contentType: file.type, upsert: false });
+    let storagePath = filePath;
+
+    const { error: storageError } = await supabaseClient.storage.from('archives').upload(filePath, file, { contentType: file.type || 'application/octet-stream', upsert: false });
     if (storageError) {
-      URL.revokeObjectURL(book.dataset.url);
-      notify(`No se pudo subir: ${storageError.message}`);
-      return;
+      console.warn('[Convive] Advertencia al subir al storage de Supabase:', storageError.message);
+      storagePath = `text/${crypto.randomUUID()}-${safeName}`;
     }
+
     const { data: archive, error: dbError } = await supabaseClient.from('archives').insert({
-      category, title, description, file_path: filePath, mime_type: file.type, size_bytes: file.size
+      category,
+      title,
+      description: description || title,
+      file_path: storagePath,
+      mime_type: file.type || 'application/octet-stream',
+      size_bytes: file.size || 0
     }).select().single();
+
     if (dbError) {
-      await supabaseClient.storage.from('archives').remove([filePath]);
-      URL.revokeObjectURL(book.dataset.url);
-      notify(`No se pudo guardar la referencia: ${dbError.message}`);
+      console.error('[Convive] Error al insertar en Supabase DB:', dbError);
+      notify(`Error base de datos: ${dbError.message}`);
       return;
     }
-    URL.revokeObjectURL(book.dataset.url);
+
+    console.log('[Convive] Archivo guardado con éxito en Supabase DB:', archive);
+    const publicUrl = supabaseClient.storage.from('archives').getPublicUrl(storagePath).data?.publicUrl || book.dataset.url;
     Object.assign(book.dataset, {
-      url: supabaseClient.storage.from('archives').getPublicUrl(filePath).data.publicUrl,
+      url: publicUrl,
       remoteId: archive.id,
-      filePath
+      filePath: storagePath
     });
+  } else {
+    notify('Aviso: Cliente Supabase no disponible en este momento.');
   }
 
   const shelf = shelfFor(category);
