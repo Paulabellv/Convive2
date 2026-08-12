@@ -183,6 +183,29 @@ function prepareBook(book) {
 
 document.querySelectorAll('.book').forEach(prepareBook);
 
+function ensureShelf(categoryKey) {
+  let shelf = document.querySelector(`.shelf[data-category="${categoryKey}"]`);
+  if (!shelf) {
+    const addCard = document.querySelector('#add-category');
+    shelf = document.createElement('div');
+    shelf.className = 'shelf';
+    shelf.dataset.category = categoryKey;
+    const title = categoryNames[categoryKey] || 'Colección Adicional';
+    shelf.innerHTML = `
+      <span class="shelf-label">00 — ${escapeHtml(title)}</span>
+      <button class="category-edit" data-shelf="${escapeHtml(categoryKey)}" aria-label="Editar ${escapeHtml(title)}">✎</button>
+      <button class="shelf-more" data-shelf="${escapeHtml(categoryKey)}" aria-label="Más opciones para ${escapeHtml(title)}">+</button>
+    `;
+    if (addCard && addCard.parentElement) {
+      addCard.parentElement.insertBefore(shelf, addCard);
+    } else if (caseEl) {
+      caseEl.appendChild(shelf);
+    }
+    if (typeof renumberShelves === 'function') renumberShelves();
+  }
+  return shelf;
+}
+
 async function loadRemoteArchives() {
   if (!supabaseClient) {
     console.warn('[Convive] No se pueden cargar archivos remotos: el cliente Supabase no está listo.');
@@ -190,8 +213,9 @@ async function loadRemoteArchives() {
   }
   const { data: archives, error } = await supabaseClient.from('archives').select('*').order('created_at', { ascending: true });
   if (error) { console.warn('Convive could not load Supabase archives:', error.message); return; }
+  console.log(`[Convive] Se encontraron ${archives.length} archivos en Supabase.`, archives);
   archives.forEach(archive => {
-    const shelf = document.querySelector(`.shelf[data-category="${archive.category}"]`);
+    let shelf = document.querySelector(`.shelf[data-category="${archive.category}"]`) || ensureShelf(archive.category);
     if (!shelf || document.querySelector(`.book[data-remote-id="${archive.id}"]`)) return;
     const book = document.createElement('button');
     const publicUrl = supabaseClient.storage.from('archives').getPublicUrl(archive.file_path).data.publicUrl;
