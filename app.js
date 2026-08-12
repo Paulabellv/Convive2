@@ -207,6 +207,44 @@ function prepareShelf(shelf) {
   }
 }
 
+// Capa de Persistencia Local para Categorías Personalizadas y Tareas
+function getLocalCategories() {
+  try { return JSON.parse(localStorage.getItem('convive_categories') || '{}'); } catch (e) { return {}; }
+}
+function saveLocalCategory(id, name) {
+  try {
+    const map = getLocalCategories();
+    map[id] = name;
+    localStorage.setItem('convive_categories', JSON.stringify(map));
+  } catch (e) {}
+}
+function removeLocalCategory(id) {
+  try {
+    const map = getLocalCategories();
+    delete map[id];
+    localStorage.setItem('convive_categories', JSON.stringify(map));
+  } catch (e) {}
+}
+
+function getLocalTasks() {
+  try { return JSON.parse(localStorage.getItem('convive_tasks') || '[]'); } catch (e) { return []; }
+}
+function saveLocalTask(taskObj) {
+  try {
+    const tasks = getLocalTasks();
+    const idx = tasks.findIndex(t => t.id === taskObj.id);
+    if (idx >= 0) tasks[idx] = taskObj;
+    else tasks.push(taskObj);
+    localStorage.setItem('convive_tasks', JSON.stringify(tasks));
+  } catch (e) {}
+}
+function removeLocalTask(id) {
+  try {
+    const tasks = getLocalTasks().filter(t => t.id !== id);
+    localStorage.setItem('convive_tasks', JSON.stringify(tasks));
+  } catch (e) {}
+}
+
 // Helper para convertir archivos a Data URL (Base64) garantizando sincronización entre diferentes dispositivos
 function fileToDataUrl(file) {
   return new Promise((resolve) => {
@@ -221,7 +259,7 @@ function fileToDataUrl(file) {
   });
 }
 
-// Capa de Persistencia Local (LocalStorage Cache)
+// Capa de Persistencia Local (LocalStorage Cache para Archivos)
 function getLocalArchives() {
   try {
     return JSON.parse(localStorage.getItem('convive_archives') || '[]');
@@ -261,6 +299,17 @@ function shelfFor(categoryKey) {
 
 async function loadRemoteArchives() {
   let archives = [];
+
+  // Restaurar categorías personalizadas desde caché local
+  const localCats = getLocalCategories();
+  Object.entries(localCats).forEach(([id, name]) => {
+    categoryNames[id] = name;
+    addCategory(name, id, true);
+  });
+
+  // Restaurar tareas desde caché local
+  const localTasks = getLocalTasks();
+  localTasks.forEach(renderTaskUI);
   
   // 1. Consultar la base de datos de Supabase desde cualquier dispositivo
   if (supabaseClient) {
@@ -285,9 +334,27 @@ async function loadRemoteArchives() {
     }
   });
 
-  console.log(`[Convive] Renderizando ${archives.length} tesoros en la biblioteca.`);
-
   archives.forEach(archive => {
+    // Si es una categoría personalizada del sistema
+    if (archive.mime_type === 'convive/category') {
+      const catId = archive.description || archive.file_path.replace('category/', '');
+      categoryNames[catId] = archive.title;
+      saveLocalCategory(catId, archive.title);
+      addCategory(archive.title, catId, true);
+      return;
+    }
+
+    // Si es una tarea de la pizarra de corcho
+    if (archive.mime_type === 'convive/task') {
+      const taskId = archive.file_path.replace('task/', '');
+      let isDone = false;
+      try { isDone = JSON.parse(archive.description || '{}').done || false; } catch (e) {}
+      const taskObj = { id: taskId, text: archive.title, done: isDone };
+      saveLocalTask(taskObj);
+      renderTaskUI(taskObj);
+      return;
+    }
+
     if (document.querySelector(`.book[data-remote-id="${archive.id}"]`)) return;
 
     let shelf = shelfFor(archive.category);
@@ -506,20 +573,96 @@ customNoteForm?.addEventListener('submit', async event => {
 const taskDialog = document.querySelector('#task-dialog');
 const taskForm = document.querySelector('#task-form');
 let editingTask = null;
-function attachTask(task) {
-  task.querySelector('.task-check').addEventListener('click', () => { task.classList.toggle('done'); task.querySelector('.task-check').textContent = task.classList.contains('done') ? '✓' : '□'; });
-  task.querySelector('.task-delete').addEventListener('click', () => task.remove());
-  task.querySelector('.task-edit').addEventListener('click', () => openTaskDialog(task));
+
+function renderTaskUI(taskObj) {
+  let existing = document.querySelector(`li[data-task-id="${taskObj.id}"]`);
+  if (!existing) {
+    existing = document.createElement('li');
+    existing.dataset.taskId = taskObj.id;
+    existing.innerHTML = '<button class="task-check" aria-label="Completar tarea">□</button><span></span><button class="task-edit" aria-label="Editar tarea">✎</button><button class="task-delete" aria-label="Eliminar tarea">×</button>';
+    document.querySelector('#task-items')?.append(existing);
+  }
+  existing.querySelector('span').textContent = taskObj.text;
+  existing.classList.toggle('done', !!taskObj.done);
+  existing.querySelector('.task-check').textContent = taskObj.done ? '✓' : '□';
+  attachTask(existing, taskObj.id);
 }
+
+function attachTask(taskEl, taskId) {
+  const id = taskId || taskEl.dataset.taskId || crypto.randomUUID();
+  taskEl.dataset.taskId = id;
+
+  const checkBtn = taskEl.querySelector('.task-check');
+  if (checkBtn) {
+    checkBtn.onclick = () => {
+      taskEl.classList.toggle('done');
+      const isDone = taskEl.classList.contains('done');
+      checkBtn.textContent = isDone ? '✓' : '□';
+      const text = taskEl.querySelector('span').textContent;
+      const taskObj = { id, text, done: isDone };
+      saveLocalTask(taskObj);
+
+      if (supabaseClient) {
+        supabaseClient.from('archives').update({ description: JSON.stringify({ done: isDone }) }).eq('file_path', `task/${id}`).catch(() => {});
+      }
+    };
+  }
+
+  const deleteBtn = taskEl.querySelector('.task-delete');
+  if (deleteBtn) {
+    deleteBtn.onclick = () => {
+      taskEl.remove();
+      removeLocalTask(id);
+      if (supabaseClient) {
+        supabaseClient.from('archives').delete().eq('file_path', `task/${id}`).catch(() => {});
+      }
+    };
+  }
+
+  const editBtn = taskEl.querySelector('.task-edit');
+  if (editBtn) {
+    editBtn.onclick = () => openTaskDialog(taskEl);
+  }
+}
+
 function openTaskDialog(task = null) { editingTask = task; document.querySelector('#task-dialog-title').textContent = task ? 'Editar tarea' : 'Agregar tarea'; document.querySelector('#task-text').value = task ? task.querySelector('span').textContent : ''; taskDialog.showModal(); }
-document.querySelectorAll('#task-items li').forEach(attachTask);
+document.querySelectorAll('#task-items li').forEach(task => attachTask(task));
 document.querySelector('#task-add')?.addEventListener('click', () => openTaskDialog());
 document.querySelector('#task-dialog-close')?.addEventListener('click', () => taskDialog.close());
-taskForm?.addEventListener('submit', event => {
-  event.preventDefault(); const text = document.querySelector('#task-text').value.trim(); if (!text) return;
-  if (editingTask) editingTask.querySelector('span').textContent = text;
-  else { const task = document.createElement('li'); task.innerHTML = '<button class="task-check" aria-label="Completar tarea">□</button><span></span><button class="task-edit" aria-label="Editar tarea">✎</button><button class="task-delete" aria-label="Eliminar tarea">×</button>'; task.querySelector('span').textContent = text; document.querySelector('#task-items').append(task); attachTask(task); }
+
+taskForm?.addEventListener('submit', async event => {
+  event.preventDefault();
+  const text = document.querySelector('#task-text').value.trim();
+  if (!text) return;
+
+  if (editingTask) {
+    editingTask.querySelector('span').textContent = text;
+    const id = editingTask.dataset.taskId;
+    const done = editingTask.classList.contains('done');
+    saveLocalTask({ id, text, done });
+    if (supabaseClient) {
+      supabaseClient.from('archives').update({ title: text }).eq('file_path', `task/${id}`).catch(() => {});
+    }
+  } else {
+    const id = crypto.randomUUID();
+    const taskObj = { id, text, done: false };
+    renderTaskUI(taskObj);
+    saveLocalTask(taskObj);
+
+    if (supabaseClient) {
+      supabaseClient.from('archives').insert({
+        id: crypto.randomUUID(),
+        category: 'system_task',
+        title: text,
+        description: JSON.stringify({ done: false }),
+        file_path: `task/${id}`,
+        mime_type: 'convive/task',
+        size_bytes: 0
+      }).catch(() => {});
+    }
+  }
   taskDialog.close();
+  notify('Tarea guardada en la pizarra ✨');
 });
 
 function homeShelves() { return [...homeScreen.querySelectorAll(':scope > .shelf, :scope > .add-shelf-card')]; }
@@ -565,31 +708,98 @@ function openCategory(shelf) {
 function attachCategoryNavigation(shelf) { shelf.addEventListener('click', event => { if (!event.target.closest('.book,.note,.shelf-more,.category-edit')) openCategory(shelf); }); }
 function activateAddBookButton(button) { button.addEventListener('click', () => { selectedCategory = button.dataset.shelf; openAddDialog(); }); }
 async function editCategory(button) {
-  const shelf = button.closest('.shelf'); const id = shelf.dataset.category; const name = categoryNames[id];
-  const choice = await openAction({ eyebrow: 'Categoría', title: name, description: 'Renombrar o eliminar esta estantería.', actions: [cancelAction, { label: 'Eliminar', value: 'delete', className: 'danger' }, { label: 'Renombrar', value: 'rename', className: 'primary' }] });
+  const shelf = button.closest('.shelf');
+  const id = shelf.dataset.category;
+  const name = categoryNames[id] || id;
+  const choice = await openAction({
+    eyebrow: 'Categoría',
+    title: name,
+    description: 'Renombrar o eliminar esta estantería.',
+    actions: [cancelAction, { label: 'Eliminar', value: 'delete', className: 'danger' }, { label: 'Renombrar', value: 'rename', className: 'primary' }]
+  });
+
   if (choice.action === 'rename') {
-    const result = await openAction({ eyebrow: 'Categoría', title: 'Renombrar categoría', fields: [{ name: 'name', value: name }], actions: [cancelAction, saveAction] });
-    if (result.action === 'save' && result.values.name.trim()) { categoryNames[id] = result.values.name.trim(); renumberShelves(); const filterBtn = document.querySelector(`.filters button[data-filter="${id}"]`); if (filterBtn) filterBtn.textContent = categoryNames[id]; }
+    const result = await openAction({
+      eyebrow: 'Categoría',
+      title: 'Renombrar categoría',
+      fields: [{ name: 'name', value: name }],
+      actions: [cancelAction, saveAction]
+    });
+    if (result.action === 'save' && result.values.name.trim()) {
+      const newName = result.values.name.trim();
+      categoryNames[id] = newName;
+      saveLocalCategory(id, newName);
+      renumberShelves();
+
+      if (supabaseClient) {
+        supabaseClient.from('archives').update({ title: newName }).eq('file_path', `category/${id}`).catch(() => {});
+      }
+      notify('Estante renombrado y sincronizado ✨');
+    }
   }
+
   if (choice.action === 'delete') {
-    if (shelf.querySelector('.book, .note')) { notify('Quita o mueve los libros antes de borrar este estante.'); return; }
-    shelf.remove(); delete categoryNames[id]; document.querySelector(`.filters button[data-filter="${id}"]`)?.remove(); renumberShelves(); renderHomeCarousel(); notify('Estante eliminado.');
+    if (shelf.querySelector('.book, .note')) {
+      notify('Quita o mueve los libros antes de borrar este estante.');
+      return;
+    }
+    shelf.remove();
+    delete categoryNames[id];
+    removeLocalCategory(id);
+    document.querySelector(`.filters button[data-filter="${id}"]`)?.remove();
+    renumberShelves();
+    renderHomeCarousel();
+
+    if (supabaseClient) {
+      supabaseClient.from('archives').delete().eq('file_path', `category/${id}`).catch(() => {});
+    }
+    notify('Estante eliminado.');
   }
 }
-function addCategory(name) {
-  const id = `category-${Date.now()}`; categoryNames[id] = name;
-  const shelf = document.createElement('div'); shelf.className = 'shelf'; shelf.dataset.category = id;
-  shelf.innerHTML = `<span class="shelf-label"></span><button class="category-edit" data-shelf="${id}" aria-label="Editar categoría">✎</button><button class="shelf-more" data-shelf="${id}" aria-label="Añadir libro">+</button>`;
-  const addCard = document.querySelector('#add-category');
-  if (addCard) caseEl.insertBefore(shelf, addCard); else caseEl.append(shelf);
-  attachCategoryNavigation(shelf); activateAddBookButton(shelf.querySelector('.shelf-more')); shelf.querySelector('.category-edit').addEventListener('click', () => editCategory(shelf.querySelector('.category-edit')));
-  const filterContainer = document.querySelector('.filters');
-  if (filterContainer) { const filter = document.createElement('button'); filter.dataset.filter = id; filter.textContent = name; filter.addEventListener('click', () => applyFilter(filter)); filterContainer.append(filter); }
+
+function addCategory(name, existingId = null, skipNotify = false) {
+  const id = existingId || `category-${Date.now()}`;
+  categoryNames[id] = name;
+  saveLocalCategory(id, name);
+
+  let shelf = shelfFor(id);
+  if (!shelf) {
+    shelf = document.createElement('div');
+    shelf.className = 'shelf';
+    shelf.dataset.category = id;
+    shelf.innerHTML = `<span class="shelf-label"></span><button class="category-edit" data-shelf="${id}" aria-label="Editar categoría">✎</button><button class="shelf-more" data-shelf="${id}" aria-label="Añadir libro">+</button>`;
+    const addCard = document.querySelector('#add-category');
+    const homeGrid = document.querySelector('.home-screen') || caseEl;
+    if (addCard && addCard.parentElement) {
+      addCard.parentElement.insertBefore(shelf, addCard);
+    } else if (homeGrid) {
+      homeGrid.append(shelf);
+    }
+  }
+
+  prepareShelf(shelf);
   renumberShelves();
+
   const items = homeShelves();
   const perPage = 6;
   homeIndex = Math.floor((items.length - 1) / perPage);
-  renderHomeCarousel(); notify('Nuevo estante creado.');
+  renderHomeCarousel();
+
+  if (!existingId && supabaseClient) {
+    supabaseClient.from('archives').insert({
+      id: crypto.randomUUID(),
+      category: 'system_category',
+      title: name,
+      description: id,
+      file_path: `category/${id}`,
+      mime_type: 'convive/category',
+      size_bytes: 0
+    }).catch(() => {});
+  }
+
+  if (!skipNotify && !existingId) {
+    notify('Nuevo estante guardado en la nube ✨');
+  }
 }
 
 function closeCategoryDrawer() {
