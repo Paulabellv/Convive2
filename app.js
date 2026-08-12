@@ -183,14 +183,32 @@ function prepareBook(book) {
 
 document.querySelectorAll('.book').forEach(prepareBook);
 
-function ensureShelf(categoryKey) {
+function prepareShelf(shelf) {
+  if (!shelf || shelf.dataset.prepared) return;
+  shelf.dataset.prepared = 'true';
+  attachCategoryNavigation(shelf);
+  const moreBtn = shelf.querySelector('.shelf-more');
+  if (moreBtn) activateAddBookButton(moreBtn);
+  const editBtn = shelf.querySelector('.category-edit');
+  if (editBtn) {
+    editBtn.addEventListener('click', event => {
+      event.stopPropagation();
+      editCategory(editBtn);
+    });
+  }
+}
+
+function ensureShelf(categoryKey, defaultTitle) {
   let shelf = document.querySelector(`.shelf[data-category="${categoryKey}"]`);
   if (!shelf) {
     const addCard = document.querySelector('#add-category');
     shelf = document.createElement('div');
     shelf.className = 'shelf';
     shelf.dataset.category = categoryKey;
-    const title = categoryNames[categoryKey] || 'Colección Adicional';
+    if (!categoryNames[categoryKey]) {
+      categoryNames[categoryKey] = defaultTitle || `Estante ${categoryKey.replace('category-', '#')}`;
+    }
+    const title = categoryNames[categoryKey];
     shelf.innerHTML = `
       <span class="shelf-label">00 — ${escapeHtml(title)}</span>
       <button class="category-edit" data-shelf="${escapeHtml(categoryKey)}" aria-label="Editar ${escapeHtml(title)}">✎</button>
@@ -201,7 +219,11 @@ function ensureShelf(categoryKey) {
     } else if (caseEl) {
       caseEl.appendChild(shelf);
     }
-    if (typeof renumberShelves === 'function') renumberShelves();
+    prepareShelf(shelf);
+    renumberShelves();
+    renderHomeCarousel();
+  } else {
+    prepareShelf(shelf);
   }
   return shelf;
 }
@@ -215,7 +237,7 @@ async function loadRemoteArchives() {
   if (error) { console.warn('Convive could not load Supabase archives:', error.message); return; }
   console.log(`[Convive] Se encontraron ${archives.length} archivos en Supabase.`, archives);
   archives.forEach(archive => {
-    let shelf = document.querySelector(`.shelf[data-category="${archive.category}"]`) || ensureShelf(archive.category);
+    let shelf = document.querySelector(`.shelf[data-category="${archive.category}"]`) || ensureShelf(archive.category, archive.title ? `Colección (${archive.title})` : null);
     if (!shelf || document.querySelector(`.book[data-remote-id="${archive.id}"]`)) return;
     const book = document.createElement('button');
     const publicUrl = supabaseClient.storage.from('archives').getPublicUrl(archive.file_path).data.publicUrl;
@@ -230,6 +252,7 @@ async function loadRemoteArchives() {
     prepareBook(book);
   });
   updateCount();
+  renumberShelves();
   renderHomeCarousel();
 }
 
@@ -484,7 +507,7 @@ function closeCategoryDrawer() {
   activeShelf = null;
 }
 
-document.querySelectorAll('.shelf').forEach(shelf => { attachCategoryNavigation(shelf); activateAddBookButton(shelf.querySelector('.shelf-more')); shelf.querySelector('.category-edit')?.addEventListener('click', () => editCategory(shelf.querySelector('.category-edit'))); });
+document.querySelectorAll('.shelf').forEach(prepareShelf);
 document.querySelector('#add-category')?.addEventListener('click', async () => { const result = await openAction({ eyebrow: 'Nuevo estante', title: 'Crear categoría', fields: [{ name: 'name', placeholder: 'Nombre de la categoría' }], actions: [cancelAction, { label: 'Crear', value: 'create', className: 'primary' }] }); if (result.action === 'create' && result.values.name.trim()) addCategory(result.values.name.trim()); });
 document.querySelector('#home-previous')?.addEventListener('click', () => { homeIndex--; renderHomeCarousel(); });
 document.querySelector('#home-next')?.addEventListener('click', () => { homeIndex++; renderHomeCarousel(); });
