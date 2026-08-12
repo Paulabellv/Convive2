@@ -300,24 +300,15 @@ function shelfFor(categoryKey) {
 async function loadRemoteArchives() {
   let archives = [];
 
-  // Restaurar categorías personalizadas desde caché local
-  const localCats = getLocalCategories();
-  Object.entries(localCats).forEach(([id, name]) => {
-    categoryNames[id] = name;
-    addCategory(name, id, true);
-  });
-
-  // Restaurar tareas desde caché local
-  const localTasks = getLocalTasks();
-  localTasks.forEach(renderTaskUI);
-  
-  // 1. Consultar la base de datos de Supabase desde cualquier dispositivo
+  // 1. Consultar la base de datos de Supabase (FUENTE DE VERDAD PRIMARIA)
+  let loadedFromSupabase = false;
   if (supabaseClient) {
     try {
       const { data, error } = await supabaseClient.from('archives').select('*').order('created_at', { ascending: true });
       if (!error && Array.isArray(data)) {
         archives = data;
-        console.log(`[Convive] Sincronizados ${data.length} tesoros desde Supabase Cloud DB.`);
+        loadedFromSupabase = true;
+        console.log(`[Convive] Sincronizados ${data.length} registros desde Supabase Cloud DB.`);
       } else if (error) {
         console.warn('[Convive] Nota sobre Supabase DB:', error.message);
       }
@@ -326,16 +317,28 @@ async function loadRemoteArchives() {
     }
   }
 
-  // 2. Fusionar con caché local
-  const localList = getLocalArchives();
-  localList.forEach(localItem => {
-    if (!archives.some(a => a.id === localItem.id || a.file_path === localItem.file_path)) {
-      archives.push(localItem);
-    }
-  });
+  // 2. Si no hay conexión con Supabase DB, utilizar el respaldo local
+  if (!loadedFromSupabase) {
+    const localCats = getLocalCategories();
+    Object.entries(localCats).forEach(([id, name]) => {
+      categoryNames[id] = name;
+      addCategory(name, id, true);
+    });
 
+    const localTasks = getLocalTasks();
+    localTasks.forEach(renderTaskUI);
+
+    const localList = getLocalArchives();
+    localList.forEach(localItem => {
+      if (!archives.some(a => a.id === localItem.id || a.file_path === localItem.file_path)) {
+        archives.push(localItem);
+      }
+    });
+  }
+
+  // 3. Procesar registros provenientes de la base de datos de Supabase
   archives.forEach(archive => {
-    // Si es una categoría personalizada del sistema
+    // Si es una categoría personalizada creada en la base de datos de Supabase
     if (archive.mime_type === 'convive/category') {
       const catId = archive.description || archive.file_path.replace('category/', '');
       categoryNames[catId] = archive.title;
@@ -344,7 +347,7 @@ async function loadRemoteArchives() {
       return;
     }
 
-    // Si es una tarea de la pizarra de corcho
+    // Si es una tarea de la pizarra de corcho en Supabase
     if (archive.mime_type === 'convive/task') {
       const taskId = archive.file_path.replace('task/', '');
       let isDone = false;
@@ -757,10 +760,9 @@ async function editCategory(button) {
   }
 }
 
-function addCategory(name, existingId = null, skipNotify = false) {
+async function addCategory(name, existingId = null, skipNotify = false) {
   const id = existingId || `category-${Date.now()}`;
   categoryNames[id] = name;
-  saveLocalCategory(id, name);
 
   let shelf = shelfFor(id);
   if (!shelf) {
@@ -786,19 +788,30 @@ function addCategory(name, existingId = null, skipNotify = false) {
   renderHomeCarousel();
 
   if (!existingId && supabaseClient) {
-    supabaseClient.from('archives').insert({
-      id: crypto.randomUUID(),
-      category: 'system_category',
-      title: name,
-      description: id,
-      file_path: `category/${id}`,
-      mime_type: 'convive/category',
-      size_bytes: 0
-    }).catch(() => {});
-  }
-
-  if (!skipNotify && !existingId) {
-    notify('Nuevo estante guardado en la nube ✨');
+    try {
+      const { error } = await supabaseClient.from('archives').insert({
+        id: crypto.randomUUID(),
+        category: 'system_category',
+        title: name,
+        description: id,
+        file_path: `category/${id}`,
+        mime_type: 'convive/category',
+        size_bytes: 0
+      });
+      if (error) {
+        console.error('[Convive] Error al guardar categoría en Supabase DB:', error.message);
+        notify(`Error Supabase: ${error.message}`);
+      } else {
+        console.log(`[Convive] Categoría "${name}" guardada exitosamente en Supabase Cloud DB.`);
+        saveLocalCategory(id, name);
+        if (!skipNotify) notify('Categoría guardada en la base de datos de Supabase ✨');
+      }
+    } catch (e) {
+      console.error('[Convive] Excepción al guardar categoría en Supabase DB:', e);
+    }
+  } else if (!existingId) {
+    saveLocalCategory(id, name);
+    if (!skipNotify) notify('Estante creado de forma local');
   }
 }
 
